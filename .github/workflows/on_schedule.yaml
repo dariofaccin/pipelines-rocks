@@ -1,0 +1,88 @@
+name: Scheduled build all rocks
+
+on:
+  schedule:
+    - cron: '0 4 1 * *'   # 1st of each month, 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  list-rocks:
+    name: Discover rock directories
+    runs-on: ubuntu-latest
+    outputs:
+      paths: ${{ steps.find.outputs.paths }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          paths=$(find . -mindepth 2 -maxdepth 2 -name rockcraft.yaml \
+                    -printf '%h\n' | sed 's|^\./||' | sort | jq -R . | jq -sc .)
+          echo "paths=$paths" >> "$GITHUB_OUTPUT"
+
+  build-scan-test:
+    name: CI (${{ matrix.rock-dir }})
+    needs: list-rocks
+    if: ${{ needs.list-rocks.outputs.paths != '[]' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        rock-dir: ${{ fromJson(needs.list-rocks.outputs.paths) }}
+    uses: canonical/charmed-kubeflow-workflows/.github/workflows/build-scan-test-publish-rock.yaml@main
+    secrets: inherit
+    with:
+      rock-dir: ${{ matrix.rock-dir }}
+      # publish is auto-skipped: gated on github.event_name == 'push'
+
+  report-failures:
+    needs: [list-rocks, build-scan-test]
+    if: ${{ always() && needs.list-rocks.outputs.paths != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rock-dir: ${{ fromJson(needs.list-rocks.outputs.paths) }}
+    steps:
+      - name: Check this rock's build result
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ROCK_DIR: ${{ matrix.rock-dir }}
+        run: |
+          # Per-leg job name is "CI (<rock-dir>) / ..." (from the `name:` of build-scan-test).
+          # Look up the conclusion of any job whose name starts with our matrix leg.
+          conclusion=$(gh run view "${{ github.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --json jobs \
+            --jq ".jobs[] | select(.name | startswith(\"CI (${ROCK_DIR})\")) | .conclusion" \
+            | sort -u | paste -sd, -)
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          if echo "$conclusion" | grep -qw failure; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open or update failure issue for this rock
+        if: steps.check.outputs.failed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+          ROCK_DIR: ${{ matrix.rock-dir }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Scheduled build failed: ${ROCK_DIR} on ${BRANCH}"
+          body=$(printf 'Scheduled build of `%s` failed on branch `%s`.\n\nRun: %s\n' \
+            "${ROCK_DIR}" "${BRANCH}" "${RUN_URL}")
+          existing=$(gh issue list --repo "${{ github.repository }}" \
+            --state open --search "in:title \"${title}\"" --json number \
+            --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$body"
+          else
+            gh issue create --repo "${{ github.repository }}" \
+              --title "$title" --body "$body"
+          fi
