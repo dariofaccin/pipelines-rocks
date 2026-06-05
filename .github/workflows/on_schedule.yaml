@@ -1,11 +1,3 @@
-# Meant to be copied over as is in all ROCKs repositories with
-# the name `on_schedule.yaml`.
-#
-# Runs once a month against `main` and on manual dispatch. Every rock in the
-# repository (i.e. every directory containing a rockcraft.yaml) is built,
-# scanned and tested. Publishing is skipped automatically (the reusable
-# workflow gates publish on push events). On failure, a GitHub issue is
-# opened (or commented on) per failing rock.
 name: On Schedule
 
 on:
@@ -14,9 +6,44 @@ on:
   workflow_dispatch:
 
 jobs:
+  list-refs:
+    name: Compute ref matrix
+    runs-on: ubuntu-22.04
+    outputs:
+      refs: ${{ steps.compute.outputs.refs }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install yq
+        run: sudo snap install yq
+
+      - name: Build ref matrix from automatic_backport_tracks.yaml
+        id: compute
+        run: |
+          file=.github/automatic_backport_tracks.yaml
+          if [ -f "$file" ]; then
+            refs=$(yq -o=json '["main"] + .automatic_backport_tracks' "$file" | jq -c .)
+          else
+            echo "::warning file=${file}::${file} not found; falling back to main only"
+            refs='["main"]'
+          fi
+          echo "Refs: ${refs}"
+          echo "refs=${refs}" >> "$GITHUB_OUTPUT"
+
   on-schedule:
-    uses: canonical/charmed-kubeflow-workflows/.github/workflows/get-all-rocks-and-build-test.yaml@chore/KF-8670-automatic-rock-build
+    name: On Schedule (${{ matrix.ref }})
+    needs: list-refs
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJson(needs.list-refs.outputs.refs) }}
+    uses: dariofaccin/charmed-kubeflow-workflows/.github/workflows/get-all-rocks-and-build-scan-test-publish.yaml@chore/KF-8670-automatic-rock-build
     permissions:
       contents: read
       issues: write
     secrets: inherit
+    with:
+      base-ref: ${{ matrix.ref }}
