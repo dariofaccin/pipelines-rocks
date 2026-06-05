@@ -2,7 +2,7 @@ name: On Schedule
 
 on:
   schedule:
-    - cron: '0 4 1 * *'   # 1st of each month, 04:00 UTC
+    - cron: '*/5 * * * *'   # every 10 minutes
   workflow_dispatch:
 
 jobs:
