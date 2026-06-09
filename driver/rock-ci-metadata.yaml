@@ -1,5 +1,5 @@
 integrations:
-  - consumer-repository: https://github.com/canonical/kfp-operators.git
+  - consumer-repository: https://github.com/dariofaccin/kfp-operators.git
    
     replace-image:
       - file: charms/kfp-api/config.yaml

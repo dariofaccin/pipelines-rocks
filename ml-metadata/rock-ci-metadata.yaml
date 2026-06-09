@@ -1,5 +1,5 @@
 integrations:
-  - consumer-repository: https://github.com/canonical/mlmd-operator.git
+  - consumer-repository: https://github.com/dariofaccin/mlmd-operator.git
 
     replace-image:
       - file: metadata.yaml
