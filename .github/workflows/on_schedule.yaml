@@ -1,4 +1,4 @@
-name: On Schedule
+name: Scheduled rebuild rocks
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 jobs:
   list-refs:
     name: Compute ref matrix
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     outputs:
       refs: ${{ steps.compute.outputs.refs }}
     steps:
@@ -33,8 +33,8 @@ jobs:
           echo "Refs: ${refs}"
           echo "refs=${refs}" >> "$GITHUB_OUTPUT"
 
-  on-schedule:
-    name: On Schedule (${{ matrix.ref }})
+  build-scan-test-publish:
+    name: Build, scan, test and publish rocks (${{ matrix.ref }})
     needs: list-refs
     strategy:
       fail-fast: false
